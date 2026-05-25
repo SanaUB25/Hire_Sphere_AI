@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AIChatbot from "@/components/AIChatbot";
 import { useAuth } from "@/lib/auth-context";
+import { generateRoadmapAI, generateJobRecommendationReasoningAI, generateBookmarkInsightAI, generateTrackerNextStepsAI } from "@/app/actions/ai-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -165,6 +166,8 @@ export default function CandidateDashboard() {
 
   // Bookmarks (Saved Jobs) State
   const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [bookmarkInsights, setBookmarkInsights] = useState<Record<string, string>>({});
+  const [trackerInsights, setTrackerInsights] = useState<Record<string, string>>({});
 
   // Toast alert system
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: string }>>([]);
@@ -251,66 +254,29 @@ Vercel Engineering Team`,
   }
 
   // 1. AI Career Roadmap Generator Logic
-  const handleGenerateRoadmap = () => {
+  const handleGenerateRoadmap = async () => {
     if (!roadmapDreamJob.trim()) {
       showToast("Please specify your dream target job role first!", "error");
       return;
     }
     setGeneratingRoadmap(true);
-    setTimeout(() => {
+    try {
       const targetRole = roadmapDreamJob.trim();
-      const roleLower = targetRole.toLowerCase();
-
-      let skills = ["Advanced Algorithms", "System Architecture", "System Design", "Cloud Infrastructure"];
-      const phases = [
-        {
-          title: "Phase 1: Fundamental Systems Mastery",
-          duration: "Month 1 - 2",
-          details: ["Master core complexity protocols", "Structure advanced layout trees", "Deploy continuous integration models"],
-          courses: ["Coursera: Advanced Algorithms & Data Structures", "Udemy: Master Cloud Architecture"]
-        },
-        {
-          title: "Phase 2: Modern Tooling & Framework Scaling",
-          duration: "Month 3 - 4",
-          details: ["Configure rapid query layers", "Optimize browser paint intervals", "Deploy resilient edge handlers"],
-          courses: ["Pluralsight: Next.js Production Architecture", "Frontend Masters: Advanced JS Engine Deepdive"]
-        },
-        {
-          title: "Phase 3: Security, Analytics & Distribution",
-          duration: "Month 5 - 6",
-          details: ["Enforce rigid RLS database access controls", "Coordinate global analytics triggers", "Build thermal heat grids for activity mapping"],
-          courses: ["Udemy: Web Application Penetration Testing & Security", "Coursera: Database Tuning & Distributed Architectures"]
-        },
-        {
-          title: "Phase 4: Capstone Execution & Mock Simulators",
-          duration: "Month 7+",
-          details: ["Build complex high-fidelity multi-tier sandbox", "Complete 5 intensive voice-based AI simulated mock technical assessments", "Publish live endpoints to cloud clusters"],
-          courses: ["HireSphere AI Sandbox Prep", "Stripe Tech Lead Mock Assessment Engine"]
-        }
-      ];
-
-      if (roleLower.includes("frontend") || roleLower.includes("react") || roleLower.includes("ui")) {
-        skills = ["React 19 Hooks", "Server Actions", "Framer Motion Animations", "Next.js 15 App Router", "TailwindCSS Design Systems"];
-        phases[0].details = ["Refine React fiber node reconcile algorithms", "Optimize Cumulative Layout Shift (CLS) scores", "Establish low-latency client boundaries"];
-        phases[1].details = ["Build reusable compound state systems", "Stitch together responsive glassmorphism modules", "Coordinate client-side router intercept guard gates"];
-      } else if (roleLower.includes("smart contract") || roleLower.includes("blockchain") || roleLower.includes("solidity") || roleLower.includes("web3")) {
-        skills = ["Solidity Smart Contracts", "Foundry Invariant Testing", "DeFi Pools Architecture", "Hardhat & Ethers.js", "Web3 Security Audit Protocols"];
-        phases[0].details = ["Write gas-efficient liquidity pools", "Formulate rigorous property-based invariant properties", "Handle complex multi-sig wallet deployments"];
-        phases[1].details = ["Deploy custom AMMs on local sandboxes", "Develop robust off-chain telemetry relays", "Coordinate Hardhat unit verification testing"];
-      } else if (roleLower.includes("ml") || roleLower.includes("machine learning") || roleLower.includes("ai") || roleLower.includes("data science")) {
-        skills = ["TensorFlow & PyTorch", "Feature Vectorization", "Transformer Architectures", "Heuristic Classification", "Python Scientific Stack"];
-        phases[0].details = ["Perform hyperparameter optimization tuning", "Optimize large feature-weight matrix pipelines", "Build predictive gradient classifiers"];
-        phases[1].details = ["Integrate vector databases (e.g. Pinecone)", "Configure distributed training shards", "Audit tokenization latency intervals"];
-      }
-
+      const candSkills = profile.skills.split(",").map(s => s.trim());
+      const aiData = await generateRoadmapAI(targetRole, candSkills);
+      
       setRoadmapData({
         role: targetRole,
-        skills,
-        phases
+        skills: aiData.skills || ["Core Skill 1", "Core Skill 2"],
+        phases: aiData.phases || []
       });
-      setGeneratingRoadmap(false);
       showToast(`AI Career Roadmap generated for "${targetRole}"!`, "success");
-    }, 1500);
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to generate AI roadmap. Ensure Gemini API key is configured.", "error");
+    } finally {
+      setGeneratingRoadmap(false);
+    }
   };
 
   // 2. AI Resume vs Job Comparison Logic
@@ -526,7 +492,14 @@ Vercel Engineering Team`,
         showToast(`Removed bookmark: "${jobTitle}"`, "info");
         return prev.filter(id => id !== jobId);
       } else {
-        showToast(`Bookmarked position: "${jobTitle}"!`, "success");
+        showToast(`Bookmarked position: "${jobTitle}"! Generating AI prep insight...`, "success");
+        // Fetch AI insight in background
+        const job = db?.jobs.find(j => j.id === jobId);
+        if (job) {
+          generateBookmarkInsightAI(job.title, job.skills).then(insight => {
+            setBookmarkInsights(curr => ({ ...curr, [jobId]: insight }));
+          }).catch(err => console.error("Error generating insight", err));
+        }
         return [...prev, jobId];
       }
     });
@@ -1507,7 +1480,7 @@ Vercel Engineering Team`,
                             <p className="text-[11px] text-gray-500 mt-1 font-semibold">{job.location} • {job.experience}</p>
                           </div>
                           <p className="text-xs text-gray-400 line-clamp-3 leading-relaxed">{job.description}</p>
-                          <div className="flex justify-between items-center border-t border-white/5 pt-3">
+                          <div className="flex justify-between items-center border-t border-white/5 pt-3 mt-3">
                             <span className="text-xs font-mono font-bold text-cyan-400">{job.salary}</span>
                             <Button 
                               onClick={() => setSelectedJob(job)}
@@ -1515,6 +1488,16 @@ Vercel Engineering Team`,
                             >
                               Apply Now
                             </Button>
+                          </div>
+                          
+                          <div className="mt-4 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                            <div className="flex items-center gap-2 mb-1 text-indigo-400">
+                              <BrainCircuit className="w-3.5 h-3.5" />
+                              <span className="text-[10px] font-bold uppercase tracking-wider">AI Prep Insight</span>
+                            </div>
+                            <p className="text-[11px] text-gray-300 leading-relaxed">
+                              {bookmarkInsights[job.id] || "Generating AI preparation strategy..."}
+                            </p>
                           </div>
                         </CardContent>
                       </Card>
@@ -1580,6 +1563,37 @@ Vercel Engineering Team`,
                             </a>
                           </div>
                         )}
+
+                        {/* AI Next Steps Section */}
+                        <div className="mt-4 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                          <div className="flex justify-between items-center mb-1">
+                            <div className="flex items-center gap-2 text-indigo-400">
+                              <BrainCircuit className="w-3.5 h-3.5" />
+                              <span className="text-[10px] font-bold uppercase tracking-wider">AI Next Step Recommendation</span>
+                            </div>
+                            {!trackerInsights[app.id] && (
+                              <Button 
+                                onClick={() => {
+                                  setTrackerInsights(prev => ({ ...prev, [app.id]: "Generating AI next steps..." }));
+                                  generateTrackerNextStepsAI(app.jobTitle, app.status).then(res => {
+                                    setTrackerInsights(prev => ({ ...prev, [app.id]: res }));
+                                  }).catch(err => {
+                                    console.error(err);
+                                    setTrackerInsights(prev => ({ ...prev, [app.id]: "Error generating insight." }));
+                                  });
+                                }}
+                                className="h-6 text-[10px] px-2 bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 border border-indigo-500/30"
+                              >
+                                <Sparkles className="w-3 h-3 mr-1" /> Get Advice
+                              </Button>
+                            )}
+                          </div>
+                          {trackerInsights[app.id] && (
+                            <p className="text-[11px] text-gray-300 leading-relaxed mt-2">
+                              {trackerInsights[app.id]}
+                            </p>
+                          )}
+                        </div>
 
                         {/* Timeline */}
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 border-t border-white/5 pt-4 text-center">

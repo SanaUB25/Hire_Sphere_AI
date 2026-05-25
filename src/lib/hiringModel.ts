@@ -1,5 +1,6 @@
 "use client";
 import { Job, Applicant, getDatabase } from "./db";
+import { generateJobRecommendationReasoningAI } from "@/app/actions/ai-actions";
 
 // ==========================================
 // MULTI-FACTOR HIRING RECOMMENDATION MODEL
@@ -150,9 +151,10 @@ export function rankCandidatesForJob(jobId: string): CandidateScore[] {
 }
 
 // Recommend jobs for a candidate profile
-export function recommendJobsForCandidate(candidateSkills: string[], expYears: number, education: string): JobRecommendation[] {
+export async function recommendJobsForCandidate(candidateSkills: string[], expYears: number, education: string): Promise<JobRecommendation[]> {
   const db = getDatabase();
-  const recs = db.jobs.filter(j => !j.isFake).map(job => {
+  const rawJobs = db.jobs.filter(j => !j.isFake);
+  const recs = await Promise.all(rawJobs.map(async job => {
     const company = db.companies.find(c => c.id === job.companyId);
     const cLower = candidateSkills.map(s => s.toLowerCase());
     const matchedSkills = job.skills.filter(s => cLower.some(c => c.includes(s.toLowerCase()) || s.toLowerCase().includes(c)));
@@ -163,17 +165,21 @@ export function recommendJobsForCandidate(candidateSkills: string[], expYears: n
     const matchScore = Math.round(skillScore * 0.45 + expScore * 0.35 + eduScore * 0.20);
 
     let reasoning = "";
-    if (matchScore >= 85) reasoning = "Excellent fit — your skills and experience align perfectly.";
-    else if (matchScore >= 70) reasoning = "Good fit — minor gaps could be bridged with focused upskilling.";
-    else if (matchScore >= 50) reasoning = "Moderate fit — consider expanding key technical skills.";
-    else reasoning = "Stretch role — significant skill development needed.";
+    try {
+      reasoning = await generateJobRecommendationReasoningAI(candidateSkills, job.title, job.skills);
+    } catch (e) {
+      if (matchScore >= 85) reasoning = "Excellent fit — your skills and experience align perfectly.";
+      else if (matchScore >= 70) reasoning = "Good fit — minor gaps could be bridged with focused upskilling.";
+      else if (matchScore >= 50) reasoning = "Moderate fit — consider expanding key technical skills.";
+      else reasoning = "Stretch role — significant skill development needed.";
+    }
 
     return {
       jobId: job.id, jobTitle: job.title, companyName: company?.name || "Unknown",
       matchScore, matchedSkills, missingSkills,
       salaryFit: job.salary, reasoning,
     };
-  });
+  }));
   recs.sort((a, b) => b.matchScore - a.matchScore);
   return recs;
 }

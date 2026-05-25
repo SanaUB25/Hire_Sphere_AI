@@ -22,7 +22,7 @@ function buildContext() {
   return { jobs, companies, applicants, allSkills: Array.from(new Set(jobs.flatMap(j => j.skills))) };
 }
 
-function generateResponse(input: string): string {
+async function generateResponse(input: string): Promise<string> {
   const q = input.toLowerCase().trim();
   const ctx = buildContext();
 
@@ -74,7 +74,7 @@ function generateResponse(input: string): string {
 
   // Job recommendations
   if (q.includes("recommend") || q.includes("suggest") || q.includes("match") || q.includes("fit")) {
-    const recs = recommendJobsForCandidate(["React", "TypeScript", "Next.js", "CSS", "HTML5", "TailwindCSS"], 3, "B.S. Computer Science");
+    const recs = await recommendJobsForCandidate(["React", "TypeScript", "Next.js", "CSS", "HTML5", "TailwindCSS"], 3, "B.S. Computer Science");
     const top3 = recs.slice(0, 3).map((r, i) => `${i + 1}. **${r.jobTitle}** at ${r.companyName} — ${r.matchScore}% match\n   ${r.reasoning}`).join("\n\n");
     return `🎯 **Top Job Recommendations for Your Profile:**\n\n${top3}\n\nThese are based on your skills, experience, and education. Update your profile for more accurate matches!`;
   }
@@ -155,8 +155,8 @@ export default function AIChatbot() {
     setInput("");
     setIsTyping(true);
 
-    setTimeout(() => {
-      const response = generateResponse(userMsg.content);
+    setTimeout(async () => {
+      const response = await generateResponse(userMsg.content);
       const botMsg: ChatMessage = {
         id: `msg-${Date.now()}-bot`,
         role: "assistant",
